@@ -19,6 +19,7 @@ public class PlantBoy : WadeBehaviour
 			right = inRight;
 			scale = 0f;
 			timeAlive = 0f;
+			attemptedBranch = false;
 		}
 
 		public static implicit operator bool(PlantJoint pj)
@@ -29,6 +30,7 @@ public class PlantBoy : WadeBehaviour
 		public Vector3 right;
 		public float scale;
 		public float timeAlive; // Use to check for scaling
+		public bool attemptedBranch;
 	}
 
 	List<PlantJoint> _mainBranchJoints = new List<PlantJoint>();
@@ -52,7 +54,7 @@ public class PlantBoy : WadeBehaviour
 
 	// We guide the plant with a transform so we affect it's rotation in
 	// a sensical way
-	Transform _moveGuide = null;
+	Transform _mainBranchMoveGuide = null;
 
 	[SerializeField]
 	float _defaultMoveSpeed = 25f;
@@ -89,7 +91,24 @@ public class PlantBoy : WadeBehaviour
 	[SerializeField]
 	int _vertsPerJoint = 10;
 
-	List<Vector3> _debugVerts = new List<Vector3>();
+	List<Vector3> _vertices = new List<Vector3>();
+	List<Vector3> _normals = new List<Vector3>();
+	List<int> _triangles = new List<int>();
+	#endregion
+
+	#region Branching
+	[SerializeField]
+	float _chanceToSpawnBranch = 0.07f;
+
+	[SerializeField]
+	int _minJointsBetweenBranches = 3;
+	int _jointsSinceBranch = int.MaxValue;
+
+	[SerializeField]
+	float _sideBranchLifespan = 5f;
+
+	[SerializeField]
+	int _maxBranchFractures = 2;
 	#endregion
 
 	void Awake()
@@ -97,14 +116,15 @@ public class PlantBoy : WadeBehaviour
 		_mesh = new Mesh();
 		_meshFilter = GetComponent<MeshFilter>();
 
-		_moveGuide = new GameObject("MoveGuide").transform;
-		_moveGuide.position = transform.position;
-		_moveGuide.LookAt(_moveGuide.position + Vector3.up);
+		_mainBranchMoveGuide = new GameObject("MoveGuide").transform;
+		_mainBranchMoveGuide.parent = transform;
+		_mainBranchMoveGuide.position = transform.position;
+		_mainBranchMoveGuide.LookAt(_mainBranchMoveGuide.position + Vector3.up);
 
 		_initPlantPos = transform.position;
 
-		_mainBranchJoints.Add(new PlantJoint(transform.position, _moveGuide.forward, Vector3.right));
-		_mainBranchCurrentJoint = new PlantJoint(transform.position, _moveGuide.forward, Vector3.right);
+		_mainBranchJoints.Add(new PlantJoint(transform.position, _mainBranchMoveGuide.forward, Vector3.right));
+		_mainBranchCurrentJoint = new PlantJoint(transform.position, _mainBranchMoveGuide.forward, Vector3.right);
 	}
 
 	void Update()
@@ -112,76 +132,86 @@ public class PlantBoy : WadeBehaviour
 		Vector3 moveVec = new Vector3(Input.GetAxis("Vertical"), Input.GetAxis("Horizontal"), 0f);
 		moveVec.x *= _pitchSpeed * Time.deltaTime;
 		moveVec.y *= _yawSpeed * Time.deltaTime;
-		_moveGuide.Rotate(moveVec);
+		_mainBranchMoveGuide.Rotate(moveVec);
 
-		// Always move in the direction of the light
-		_moveGuide.position += _moveGuide.forward * MoveSpeed;
+		UpdateBranch(_mainBranchMoveGuide, _mainBranchJoints, _mainBranchCurrentJoint, _maxBranchFractures - 1);
 	}
 
-	void FixedUpdate()
+	void LateUpdate()
 	{
-		_mainBranchCurrentJoint.position = _moveGuide.position;
-		_mainBranchCurrentJoint.timeAlive += Time.deltaTime;
+		// Add the current plant joint into our plantjoints list just for the mesh calculation!
+		_mainBranchJoints.Add(_mainBranchCurrentJoint);
+		CalculateBranchMesh(_mainBranchJoints);
+		_mainBranchJoints.Remove(_mainBranchCurrentJoint);
+
+		_mesh.vertices = _vertices.ToArray();
+		_mesh.normals = _normals.ToArray();
+		_mesh.triangles = _triangles.ToArray();
+
+		_meshFilter.mesh = _mesh;
+
+		_vertices.Clear();
+		_normals.Clear();
+		_triangles.Clear();
+	}
+
+	void UpdateBranch(Transform moveGuide, List<PlantJoint> plantJoints, PlantJoint currentJoint, int fracturesRemaining)
+	{
+		moveGuide.position += moveGuide.forward * MoveSpeed;
+
+		currentJoint.position = moveGuide.position;
+		currentJoint.timeAlive += Time.deltaTime;
 
 		// Update each joint in the plant
-		for(int i = 0; i < _mainBranchJoints.Count; i++)
+		for(int i = 0; i < plantJoints.Count; i++)
 		{
-			PlantJoint pj = _mainBranchJoints[i];
+			PlantJoint pj = plantJoints[i];
+			if(!pj.attemptedBranch)
+			{
+				pj.attemptedBranch = true;
+
+				// TODO: Joints since sidebranch should be local to the branch
+				if(_jointsSinceBranch > _minJointsBetweenBranches && Random.value < _chanceToSpawnBranch)
+				{
+					_jointsSinceBranch = 0;
+					StartCoroutine(StartBranchAtJoint(pj, _sideBranchLifespan, fracturesRemaining));
+				}
+				else
+					_jointsSinceBranch++;
+			}
+
 			if(pj.timeAlive < _jointMaxGrowthTime)
 			{
 				pj.timeAlive += Time.deltaTime;
-				pj.timeAlive = Mathf.Clamp(pj.timeAlive, float.MinValue, _jointMaxGrowthTime);
 
+				float fractureScaleMod = fracturesRemaining/(float)_maxBranchFractures;
 				pj.scale = _jointGrowthCurve.Evaluate(pj.timeAlive/_jointMaxGrowthTime) * _jointMaxGrowth;
 			}
 		}
 
 		// If we haven't dropped a joint yet, compare with our starting position
-		Vector3 prevPos = _mainBranchJoints.Last() ? _mainBranchJoints.Last().position : _initPlantPos;
+		Vector3 prevPos = plantJoints.Last() ? plantJoints.Last().position : _initPlantPos;
 
-		float distanceSincePrevJoint = Vector3.Distance(_mainBranchCurrentJoint.position, prevPos);
+		float distanceSincePrevJoint = Vector3.Distance(currentJoint.position, prevPos);
 		if(distanceSincePrevJoint > _jointDropDistance)
 		{
 			int catchupJointsNeed = Mathf.FloorToInt(distanceSincePrevJoint/_jointDropDistance);
 			for(int i = 0; i < catchupJointsNeed; i++)
 			{
-				Vector3 dirFromLastJoint = (_mainBranchCurrentJoint.position - prevPos).normalized;
+				Vector3 dirFromLastJoint = (currentJoint.position - prevPos).normalized;
 				Vector3 newJointPos = prevPos + dirFromLastJoint * _jointDropDistance;
 
-				PlantJoint newJoint = new PlantJoint(newJointPos, dirFromLastJoint, _moveGuide.right);
+				PlantJoint newJoint = new PlantJoint(newJointPos, dirFromLastJoint, moveGuide.right);
 				newJoint.scale = _jointGrowthCurve.Evaluate(0f) * _jointMaxGrowth;
 
-				_mainBranchJoints.Add(newJoint);
+				plantJoints.Add(newJoint);
 			}
 
-			_mainBranchCurrentJoint.timeAlive = 0f;
+			currentJoint.timeAlive = 0f;
 		}
 	}
 
-	void LateUpdate()
-	{
-		// DrawMesh!
-		List<Vector3> vertices = new List<Vector3>();
-		List<Vector3> normals = new List<Vector3>();
-		//List<Vector2> uvs = new List<Vector2>(); This can come later
-		List<int> triangles = new List<int>();
-
-		// Add the current plant joint into our plantjoints list just for the mesh calculation!
-		_mainBranchJoints.Add(_mainBranchCurrentJoint);
-		CalculateBranch(_mainBranchJoints, vertices, normals, triangles);
-		_mainBranchJoints.Remove(_mainBranchCurrentJoint);
-
-		_mesh.vertices = vertices.ToArray();
-		_mesh.triangles = triangles.ToArray();
-		_mesh.normals = normals.ToArray();
-
-		_meshFilter.mesh = _mesh;
-
-		// Debug
-		_debugVerts = vertices;
-	}
-
-	void CalculateBranch(List<PlantJoint> plantJoints, List<Vector3> vertices, List<Vector3> normals, List<int> triangles)
+	void CalculateBranchMesh(List<PlantJoint> plantJoints)
 	{
 		// Iterate through each of the plant joints
 		for(int i = 0; i < plantJoints.Count; i++)
@@ -204,28 +234,28 @@ public class PlantBoy : WadeBehaviour
 
 				vertPos += circleUp * pj.scale;
 				vertPos += circleRight * pj.scale;
-				vertices.Add(vertPos);
+				_vertices.Add(vertPos);
 
 				Vector3 basicOffset = vertPos + circleUp + circleRight;
 				Vector3 normal = (basicOffset - pj.position).normalized;
 
-				normals.Add(normal);
+				_normals.Add(normal);
 
 				if(i != 0 && j != 0)
 				{
 					PlantJoint prevPj = plantJoints[i - 1];
-					int currentTri = vertices.Count - 1;
+					int currentTri = _vertices.Count - 1;
 					int prevTri = currentTri - 1; // Previous vert on same joint
 					int prevJointTri = currentTri - _vertsPerJoint; // Same vert previous joint
 					int prevJointPrevTri = prevTri - _vertsPerJoint; // Previous vert on previous joint
 
-					triangles.Add(prevJointPrevTri);
-					triangles.Add(currentTri);
-					triangles.Add(prevTri);
+					_triangles.Add(prevJointPrevTri);
+					_triangles.Add(currentTri);
+					_triangles.Add(prevTri);
 
-					triangles.Add(prevJointPrevTri);
-					triangles.Add(prevJointTri);
-					triangles.Add(currentTri);
+					_triangles.Add(prevJointPrevTri);
+					_triangles.Add(prevJointTri);
+					_triangles.Add(currentTri);
 
 					if(j == _vertsPerJoint - 1)
 					{
@@ -236,27 +266,61 @@ public class PlantBoy : WadeBehaviour
 						prevTri = currentTri; // Previous vert on same joint
 						prevJointPrevTri = prevJointTri; // Previous vert on previous joint
 
-						currentTri = vertices.Count - _vertsPerJoint;
+						currentTri = _vertices.Count - _vertsPerJoint;
 						prevJointTri = currentTri - _vertsPerJoint; // Same vert previous joint
 
-						triangles.Add(prevJointPrevTri);
-						triangles.Add(currentTri);
-						triangles.Add(prevTri);
+						_triangles.Add(prevJointPrevTri);
+						_triangles.Add(currentTri);
+						_triangles.Add(prevTri);
 
-						triangles.Add(prevJointPrevTri);
-						triangles.Add(prevJointTri);
-						triangles.Add(currentTri);
+						_triangles.Add(prevJointPrevTri);
+						_triangles.Add(prevJointTri);
+						_triangles.Add(currentTri);
 					}
 				}
 			}
 		}
 	}
 
-	IEnumerator StartBranchAtJoint(PlantJoint plantJoint)
+	IEnumerator StartBranchAtJoint(PlantJoint startingJoint, float lifespan, int fracturesRemaining)
 	{
-		// Spawn a move guide and randomly aim it up-ish
-		// Keep track of it's plantjoints here and draw them from here also
-		yield return null;
+		List<PlantJoint> branchJoints = new List<PlantJoint>();
+		Vector3 newForward = (startingJoint.right + startingJoint.forward)/2f;
+		Vector3 newRight = Vector3.Cross(startingJoint.forward, startingJoint.right);
+		PlantJoint branchMainJoint = new PlantJoint( startingJoint.position, newForward, newRight );
+
+		Transform moveGuide = new GameObject("TempMoveGuide").transform;
+		moveGuide.transform.position = branchMainJoint.position;
+		moveGuide.transform.LookAt( branchMainJoint.position, branchMainJoint.forward );
+		moveGuide.parent = transform;
+
+		Quaternion startRotation = moveGuide.rotation;
+		float yRotation = Random.Range(-90f, -30f);
+		Quaternion endRotation = Quaternion.Euler((Random.insideUnitSphere * 360f).SetX(yRotation));
+
+		float lifeTimer = 0f;
+		while(lifeTimer < lifespan)
+		{
+			UpdateBranch(moveGuide, branchJoints, branchMainJoint, fracturesRemaining - 1);
+
+			branchJoints.Add(branchMainJoint);
+			CalculateBranchMesh(branchJoints);
+			branchJoints.Remove(branchMainJoint);
+
+			moveGuide.rotation = Quaternion.Lerp(startRotation, endRotation, lifeTimer/lifespan );
+
+			lifeTimer += Time.deltaTime;
+			yield return null;
+		}
+
+		Destroy(moveGuide.gameObject);
+
+		branchJoints.Add(branchMainJoint);
+		while(true)
+		{
+			CalculateBranchMesh(branchJoints);
+			yield return null;
+		}
 	}
 
 	void OnDrawGizmos()
@@ -267,9 +331,9 @@ public class PlantBoy : WadeBehaviour
 			Gizmos.DrawSphere(_mainBranchCurrentJoint.position, 0.1f);
 		}
 
-		for(int i = 0; i < _debugVerts.Count; i++)
+		for(int i = 0; i < _vertices.Count; i++)
 		{
-			Gizmos.DrawSphere(transform.position + _debugVerts[i], 0.01f);
+			Gizmos.DrawSphere(transform.position + _vertices[i], 0.01f);
 		}
 
 		if(_mainBranchJoints.Count > 0)
