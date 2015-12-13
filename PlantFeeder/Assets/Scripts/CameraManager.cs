@@ -10,7 +10,7 @@ public class CameraManager : WadeBehaviour
 	float _lerpLookAtSpeed = 7f;
 
 	[SerializeField]
-	Vector2 _rotateSpeed = Vector2.one;
+	float _rotateSpeed = 50f;
 
 	[SerializeField]
 	float _maxBoundsMagnitude = 20f;
@@ -22,10 +22,13 @@ public class CameraManager : WadeBehaviour
 	MinMaxF _viewDistanceRange = new MinMaxF(2.3f, 50f);
 
 	[SerializeField]
-	MinMaxF _cameraXRotationRange = new MinMaxF(-35f, 35f);
+	float _zoomLerpSpeed = 5f;
 
 	[SerializeField]
-	float _zoomLerpSpeed = 5f;
+	float _heightOffset = 3f;
+
+	[SerializeField]
+	float _autoRotateSpeed = 15f;
 
 	Vector3 _targetPosition = Vector3.zero;
 
@@ -43,31 +46,20 @@ public class CameraManager : WadeBehaviour
 		Vector3 plantCenter = _plantBoy.Center;
 
 		// Rotation
-
 		Quaternion prevRotation = transform.rotation;
 		transform.LookAt(plantCenter, Vector3.up);
-		float desiredYRot = transform.eulerAngles.y;
-		transform.rotation = prevRotation;
-		transform.eulerAngles = transform.eulerAngles.SetY(desiredYRot);
+		transform.eulerAngles = prevRotation.eulerAngles.SetY(transform.eulerAngles.y);
 		Quaternion desiredRotation = transform.rotation;
 		transform.rotation = Quaternion.Lerp(prevRotation, desiredRotation, Time.deltaTime * _lerpLookAtSpeed);
 
-		float clampEulerX = transform.eulerAngles.x;
-		if(transform.eulerAngles.x > 180f)
-			clampEulerX = Mathf.Max(365f + _cameraXRotationRange.min, clampEulerX);
-		else
-			clampEulerX = Mathf.Min(clampEulerX, _cameraXRotationRange.max);
-		transform.eulerAngles = transform.eulerAngles.SetZ(0f).SetX(clampEulerX);
-		// TODO: Clamp vertical rotation
-
-		Vector2 mouseInput = new Vector2(Input.GetAxis("Mouse X"), Input.GetAxis("Mouse Y")) * Time.deltaTime;
-		transform.RotateAround(plantCenter.SetY(transform.position.y), Vector3.up, _rotateSpeed.x * mouseInput.x);
-		transform.RotateAround(plantCenter.SetY(transform.position.y), transform.right, _rotateSpeed.y * -mouseInput.y);
+		float rotateSpeed = _plantBoy.IsGrowing ? _autoRotateSpeed : _rotateSpeed * Input.GetAxis("Horizontal");
+		rotateSpeed *= Time.deltaTime;
+		transform.RotateAround(plantCenter.SetY(transform.position.y), Vector3.up, rotateSpeed);
 
 		// Zoom
 		float normalizedBoundsSize = _plantBoy.renderer.bounds.size.magnitude/_maxBoundsMagnitude;
 		float sizeToDistanceAlpha = _boundsSizeToViewDistanceMap.Evaluate(normalizedBoundsSize);
-		Vector3 zoomDirection = (transform.position - plantCenter).SetY(0f).normalized;
+		Vector3 zoomDirection = (transform.position - plantCenter).SetY(_heightOffset).normalized;
 
 		_targetPosition = plantCenter + zoomDirection * _viewDistanceRange.Lerp(sizeToDistanceAlpha);
 		transform.position = Vector3.Lerp(transform.position, _targetPosition, Time.deltaTime * _zoomLerpSpeed);

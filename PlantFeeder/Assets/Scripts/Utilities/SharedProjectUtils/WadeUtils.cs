@@ -211,6 +211,14 @@ public static class WadeUtils
 		return list[list.Count - 1];
 	}
 
+	public static T First<T>(this List<T> list)
+	{
+		if(list.Count == 0)
+			return default(T);
+
+		return list[0];
+	}
+
 	public static float DistanceTo(this Vector2 pointA, Vector4 pointB)
 	{
 		return ((Vector4)pointA).DistanceTo(pointB);
