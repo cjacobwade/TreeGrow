@@ -50,10 +50,6 @@ public class PlantBoy : WadeBehaviour
 
 	PlantJoint _mainBranchCurrentJoint = null;
 
-	bool _isGrowing = true;
-	public bool IsGrowing
-	{ get { return _isGrowing; } }
-
 	#region Movement
 	Vector3 _initPlantPos = Vector3.zero;
 
@@ -155,8 +151,7 @@ public class PlantBoy : WadeBehaviour
 	float _leafHeightOffset = 0.15f;
 	#endregion
 
-	Vector3 _debugMoveToPos = Vector3.zero;
-	List<Vector3> _debugBranchStartPoints = new List<Vector3>();
+	public System.Action FinishedGrowingCallback = delegate {};
 
 	void Awake()
 	{
@@ -190,8 +185,6 @@ public class PlantBoy : WadeBehaviour
 			float lookAtHeightMod = Input.GetMouseButton(0) ? -1f : 1f;
 			moveToPosition.y = _mainBranchCurrentJoint.position.y + lookAtHeightMod;
 
-			_debugMoveToPos = moveDirection;
-
 			float finishMod = 1f;
 			float tenthLife = _mainBranchLifespan/10f;
 			if(lifeTimer > _mainBranchLifespan - tenthLife)
@@ -215,11 +208,12 @@ public class PlantBoy : WadeBehaviour
 
 		yield return new WaitForSeconds(1f);
 
-		_isGrowing = false;
 		gameObject.AddComponent<MeshCollider>();
 
 		PlantJoint leafJoint = _mainBranchJoints[_mainBranchJoints.Count - 5];
 		StartCoroutine(GrowLeafRoutine(leafJoint.position, leafJoint.forward, _mainLeafScaleMod));
+
+		FinishedGrowingCallback();
 	}
 
 	void LateUpdate()
@@ -283,7 +277,6 @@ public class PlantBoy : WadeBehaviour
 				{
 					jointsSinceBranch = 0;
 					StartCoroutine(StartBranchAtJoint(pj, _sideBranchLifespan.Random, fracturesRemaining));
-					_debugBranchStartPoints.Add(pj.position);
 				}
 			} 
 		}
@@ -341,8 +334,11 @@ public class PlantBoy : WadeBehaviour
 				Vector3 basicOffset = vertPos + circleUp + circleRight;
 				Vector3 normal = (basicOffset - pj.position).normalized;
 
+				if(uvHeight > 0.5f)
+					uvHeight = uvHeight % 0.5f;
+
 				_normals.Add(normal);
-				_uv.Add(new Vector2((j + 1)/(float)_vertsPerJoint, uvHeight));
+				_uv.Add(new Vector2((j + 1)/(float)_vertsPerJoint, uvHeight) * 0.5f);
 
 				// Calculate tangent in a dumb way
 				Vector3 tanPos = pj.position;
@@ -398,8 +394,6 @@ public class PlantBoy : WadeBehaviour
 
 	IEnumerator StartBranchAtJoint(PlantJoint startingJoint, float lifespan, int fracturesRemaining)
 	{
-		Debug.Log("Starting new branch: " + lifespan);
-
 		List<PlantJoint> branchJoints = new List<PlantJoint>();
 		Vector3 newForward = (startingJoint.right + startingJoint.forward)/2f;
 		Vector3 newRight = Vector3.Cross(startingJoint.forward, startingJoint.right);
@@ -471,6 +465,7 @@ public class PlantBoy : WadeBehaviour
 	IEnumerator GrowLeafRoutine(Vector3 position, Vector3 forward, float scaleMod = 1f)
 	{
 		Jiggle newLeafChunk = Instantiate<Jiggle>(_leafChunkPrefab);
+		newLeafChunk.transform.SetParent(transform);
 		newLeafChunk.transform.position = position;
 		newLeafChunk.transform.LookAt(position + forward);
 

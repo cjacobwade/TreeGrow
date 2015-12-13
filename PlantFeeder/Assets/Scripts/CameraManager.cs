@@ -13,6 +13,9 @@ public class CameraManager : WadeBehaviour
 	float _rotateSpeed = 50f;
 
 	[SerializeField]
+	float _autoRotateSpeed = 15f;
+
+	[SerializeField]
 	float _maxBoundsMagnitude = 20f;
 
 	[SerializeField]
@@ -27,14 +30,32 @@ public class CameraManager : WadeBehaviour
 	[SerializeField]
 	float _heightOffset = 3f;
 
-	[SerializeField]
-	float _autoRotateSpeed = 15f;
-
 	Vector3 _targetPosition = Vector3.zero;
+
+	bool _hasControl = false;
+	float _giveControlTime = 2f;
+	float _controlAmount = 0f;
 
 	void Awake()
 	{
 		_plantBoy = FindObjectOfType<PlantBoy>();
+		_plantBoy.FinishedGrowingCallback += () => StartCoroutine(GiveCameraControl());
+	}
+
+	IEnumerator GiveCameraControl()
+	{
+		_hasControl = true;
+
+		float giveControlTimer = 0f;
+		while(giveControlTimer < _giveControlTime)
+		{
+			_controlAmount = giveControlTimer/_giveControlTime;
+
+			giveControlTimer += Time.deltaTime;
+			yield return null;
+		}
+
+		_controlAmount = 1f;
 	}
 
 	void Update()
@@ -52,7 +73,7 @@ public class CameraManager : WadeBehaviour
 		Quaternion desiredRotation = transform.rotation;
 		transform.rotation = Quaternion.Lerp(prevRotation, desiredRotation, Time.deltaTime * _lerpLookAtSpeed);
 
-		float rotateSpeed = _plantBoy.IsGrowing ? _autoRotateSpeed : _rotateSpeed * Input.GetAxis("Horizontal");
+		float rotateSpeed = _hasControl ? (_rotateSpeed * Input.GetAxis("Horizontal") * _controlAmount) : _autoRotateSpeed;
 		rotateSpeed *= Time.deltaTime;
 		transform.RotateAround(plantCenter.SetY(transform.position.y), Vector3.up, rotateSpeed);
 
