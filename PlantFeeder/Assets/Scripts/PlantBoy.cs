@@ -210,7 +210,7 @@ public class PlantBoy : WadeBehaviour
 
 		gameObject.AddComponent<MeshCollider>();
 
-		PlantJoint leafJoint = _mainBranchJoints[_mainBranchJoints.Count - 5];
+		PlantJoint leafJoint = _mainBranchJoints[_mainBranchJoints.Count - 9];
 		StartCoroutine(GrowLeafRoutine(leafJoint.position, leafJoint.forward, _mainLeafScaleMod));
 
 		FinishedGrowingCallback();

@@ -125,7 +125,7 @@ public class OBJExport : MonoBehaviour
 	}
 #endif
 
-	public static void DoExport(GameObject go, bool makeSubmeshes)
+	public static void DoExport(GameObject go, Texture2D tex, bool makeSubmeshes)
 	{
 		string meshName = go.name;
 		string fileName = go.name + "_" + System.DateTime.Now.Day.ToString() + Random.Range(0, 1000000).ToString() + ".obj";
@@ -140,8 +140,7 @@ public class OBJExport : MonoBehaviour
 			+ "\n#-------" 
 			+ "\n\n");
 
-		Texture2D plantTex = go.GetComponent<Renderer>().material.GetTexture("_MainTex") as Texture2D;
-		File.WriteAllBytes(Application.dataPath + "/../" + plantTex.name + ".png", plantTex.EncodeToPNG());
+		File.WriteAllBytes(Application.dataPath + tex.name + ".png", tex.EncodeToPNG());
 
 //		WriteToFile("newmtl initialShadingGroup\n" +
 //			"illum 4\n" +
