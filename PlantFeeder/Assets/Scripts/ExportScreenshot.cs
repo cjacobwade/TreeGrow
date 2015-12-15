@@ -37,7 +37,7 @@ public class ExportScreenshot : SingletonBehaviour<ExportScreenshot>
 
 	public void TakeShot()
 	{
-		string fileName = Application.dataPath + "BeautyShot_" + System.DateTime.Now.ToString("s") + ".png";
+		string fileName = "BeautyShot_" + Random.Range(0, 1000000).ToString() + ".png";
 		Application.CaptureScreenshot(fileName);
 
 //		StartCoroutine(Twitter.API.PostTweet(File.ReadAllBytes(fileName), CONSUMER_KEY, CONSUMER_SECRET, m_AccessTokenResponse,

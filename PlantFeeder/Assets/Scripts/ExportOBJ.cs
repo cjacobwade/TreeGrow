@@ -128,7 +128,7 @@ public class OBJExport : MonoBehaviour
 	public static void DoExport(GameObject go, Texture2D tex, bool makeSubmeshes)
 	{
 		string meshName = go.name;
-		string fileName = go.name + "_" + System.DateTime.Now.Day.ToString() + Random.Range(0, 1000000).ToString() + ".obj";
+		string fileName =  Application.dataPath + "/../BeautifulBonsai" + System.DateTime.Now.Day.ToString() + Random.Range(0, 1000000).ToString() + ".obj";
 
 		OBJExport.Start();
 
@@ -140,7 +140,7 @@ public class OBJExport : MonoBehaviour
 			+ "\n#-------" 
 			+ "\n\n");
 
-		File.WriteAllBytes(Application.dataPath + tex.name + ".png", tex.EncodeToPNG());
+		File.WriteAllBytes( Application.dataPath + "/../" + tex.name + ".png", tex.EncodeToPNG());
 
 //		WriteToFile("newmtl initialShadingGroup\n" +
 //			"illum 4\n" +
