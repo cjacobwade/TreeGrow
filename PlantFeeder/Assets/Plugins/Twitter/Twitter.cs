@@ -15,165 +15,26 @@ using UnityEngine;
 
 namespace Twitter
 {
-    public class RequestTokenResponse
-    {
-        public string Token { get; set; }
-        public string TokenSecret { get; set; }
-    }
-
-    public class AccessTokenResponse
-    {
-        public string Token { get; set; }
-        public string TokenSecret { get; set; }
-        public string UserId { get; set; }
-        public string ScreenName { get; set; }
-    }
-
-    public delegate void RequestTokenCallback(bool success, RequestTokenResponse response);
-    public delegate void AccessTokenCallback(bool success, AccessTokenResponse response);
     public delegate void PostTweetCallback(bool success);
 
     public class API
     {
-        #region OAuth Token Methods
-        // 1. Get Request-Token From Twitter
-        // 2. Get PIN from User
-        // 3. Get Access-Token from Twitter
-        // 4. Use Accss-Token for APIs requriring OAuth 
-        // Accss-Token will be always valid until the user revokes the access to your application.
-
-        // Twitter APIs for OAuth process
-        private static readonly string RequestTokenURL = "https://api.twitter.com/oauth/request_token";
-        private static readonly string AuthorizationURL = "https://api.twitter.com/oauth/authenticate?oauth_token={0}";
-        private static readonly string AccessTokenURL = "https://api.twitter.com/oauth/access_token";
-
-        public static IEnumerator GetRequestToken(string consumerKey, string consumerSecret, RequestTokenCallback callback)
-        {
-            WWW web = WWWRequestToken(consumerKey, consumerSecret);
-
-            yield return web;
-
-            if (!string.IsNullOrEmpty(web.error))
-            {
-                Debug.Log(string.Format("GetRequestToken - failed. error : {0}", web.error));
-                callback(false, null);
-            }
-            else
-            {
-                RequestTokenResponse response = new RequestTokenResponse
-                {
-                    Token = Regex.Match(web.text, @"oauth_token=([^&]+)").Groups[1].Value,
-                    TokenSecret = Regex.Match(web.text, @"oauth_token_secret=([^&]+)").Groups[1].Value,
-                };
-
-                if (!string.IsNullOrEmpty(response.Token) &&
-                    !string.IsNullOrEmpty(response.TokenSecret))
-                {
-                    callback(true, response);
-                }
-                else
-                {
-                    Debug.Log(string.Format("GetRequestToken - failed. response : {0}", web.text));
-
-                    callback(false, null);
-                }
-            }
-        }
-
-        public static void OpenAuthorizationPage(string requestToken)
-        {
-            Application.OpenURL(string.Format(AuthorizationURL, requestToken));
-        }
-
-        public static IEnumerator GetAccessToken(string consumerKey, string consumerSecret, string requestToken, string pin, AccessTokenCallback callback)
-        {
-            WWW web = WWWAccessToken(consumerKey, consumerSecret, requestToken, pin);
-
-            yield return web;
-
-            if (!string.IsNullOrEmpty(web.error))
-            {
-                Debug.Log(string.Format("GetAccessToken - failed. error : {0}", web.error));
-                callback(false, null);
-            }
-            else
-            {
-                AccessTokenResponse response = new AccessTokenResponse
-                {
-                    Token = Regex.Match(web.text, @"oauth_token=([^&]+)").Groups[1].Value,
-                    TokenSecret = Regex.Match(web.text, @"oauth_token_secret=([^&]+)").Groups[1].Value,
-                    UserId = Regex.Match(web.text, @"user_id=([^&]+)").Groups[1].Value,
-                    ScreenName = Regex.Match(web.text, @"screen_name=([^&]+)").Groups[1].Value
-                };
-
-                if (!string.IsNullOrEmpty(response.Token) &&
-                    !string.IsNullOrEmpty(response.TokenSecret) &&
-                    !string.IsNullOrEmpty(response.UserId) &&
-                    !string.IsNullOrEmpty(response.ScreenName))
-                {
-                    callback(true, response);
-                }
-                else
-                {
-                    Debug.Log(string.Format("GetAccessToken - failed. response : {0}", web.text));
-
-                    callback(false, null);
-                }
-            }
-        }
-
-        private static WWW WWWRequestToken(string consumerKey, string consumerSecret)
-        {
-            // Add data to the form to post.
-            WWWForm form = new WWWForm();
-            form.AddField("oauth_callback", "oob");
-
-            // HTTP header
-            Dictionary<string, string> parameters = new Dictionary<string, string>();
-            AddDefaultOAuthParams(parameters, consumerKey, consumerSecret);
-            parameters.Add("oauth_callback", "oob");
-
-			var headers = new Dictionary<string, string>();
-            headers["Authorization"] = GetFinalOAuthHeader("POST", RequestTokenURL, parameters);
-
-            return new WWW(RequestTokenURL, form.data, headers);
-        }
-
-        private static WWW WWWAccessToken(string consumerKey, string consumerSecret, string requestToken, string pin)
-        {
-            // Need to fill body since Unity doesn't like an empty request body.
-            byte[] dummmy = new byte[1];
-            dummmy[0] = 0;
-
-            // HTTP header
-			var headers = new Dictionary<string, string>();
-            Dictionary<string, string> parameters = new Dictionary<string, string>();
-            AddDefaultOAuthParams(parameters, consumerKey, consumerSecret);
-            parameters.Add("oauth_token", requestToken);
-            parameters.Add("oauth_verifier", pin);
-
-            headers["Authorization"] = GetFinalOAuthHeader("POST", AccessTokenURL, parameters);
-
-            return new WWW(AccessTokenURL, dummmy, headers);
-        }
-
-        private static string GetHeaderWithAccessToken(string httpRequestType, string apiURL, string consumerKey, string consumerSecret, AccessTokenResponse response, Dictionary<string, string> parameters)
+		private static string GetHeaderWithAccessToken(string httpRequestType, string apiURL, string consumerKey, string consumerSecret, string accessToken, string accessTokenSecret, Dictionary<string, string> parameters)
         {
             AddDefaultOAuthParams(parameters, consumerKey, consumerSecret);
 
-            parameters.Add("oauth_token", response.Token);
-            parameters.Add("oauth_token_secret", response.TokenSecret);
+            parameters.Add("oauth_token", accessToken);
+            parameters.Add("oauth_token_secret", accessTokenSecret);
 
             return GetFinalOAuthHeader(httpRequestType, apiURL, parameters);
         }
 
-        #endregion
-
         #region Twitter API Methods
 
-        private const string PostTweetURL = "https://api.twitter.com/1.1/statuses/update.json";
+		private const string UploadMediaURL = "https://upload.twitter.com/1.1/media/upload.json";
+		private const string PostTweetURL = "https://api.twitter.com/1.1/statuses/update.json";
 
-		public static IEnumerator PostTweet(byte[] imageInBytes, string consumerKey, string consumerSecret,  AccessTokenResponse response, PostTweetCallback callback)
+		public static IEnumerator PostTweet(byte[] imageInBytes, string consumerKey, string consumerSecret, string accessToken, string accessTokenSecret, PostTweetCallback callback)
         {
 			if (imageInBytes.Length == 0)
             {
@@ -191,9 +52,10 @@ namespace Twitter
 
                 // HTTP header
 				var headers = new Dictionary<string, string>();
-                headers["Authorization"] = GetHeaderWithAccessToken("POST", PostTweetURL, consumerKey, consumerSecret, response, parameters);
+				headers["Authorization"] = GetHeaderWithAccessToken("POST", UploadMediaURL, consumerKey, consumerSecret, accessToken, accessTokenSecret, parameters);
+				headers["Content-Transfer-Encoding"] = "base64";
 
-                WWW web = new WWW(PostTweetURL, form.data, headers);
+				WWW web = new WWW(UploadMediaURL, form.data, headers);
                 yield return web;
 
                 if (!string.IsNullOrEmpty(web.error))
@@ -213,12 +75,54 @@ namespace Twitter
                     else
                     {
                         callback(true);
-                    }
-                }
-            }
-        }
 
-        #endregion
+						// NOW THAT MEDIA IS UPLOADED, TWEET WITH THE ASSOCIATED MEDIA ID
+						string parsedMediaID = web.text.Substring(12,18);
+						string tweetString = "What a beautiful bonsai~";
+
+						parameters = new Dictionary<string, string>();
+						parameters.Add("status", tweetString );
+						parameters.Add("media_ids", parsedMediaID);
+						
+						// Add data to the form to post.
+						form = new WWWForm();
+						form.AddField("status", tweetString);
+						form.AddField("media_ids", parsedMediaID);
+						
+						// HTTP header
+						headers = new Dictionary<string, string>();
+						headers["Authorization"] = GetHeaderWithAccessToken("POST", PostTweetURL, consumerKey, consumerSecret, accessToken, accessTokenSecret, parameters);
+
+						WWW web2 = new WWW(PostTweetURL, form.data, headers);
+						yield return web2;
+
+						if (!string.IsNullOrEmpty(web2.error))
+						{
+							Debug.Log(string.Format("PostTweet - failed. {0}\n{1}", web2.error, web2.text));
+							callback(false);
+						}
+						else
+						{
+							error = Regex.Match(web2.text, @"<error>([^&]+)</error>").Groups[1].Value;
+							
+							if (!string.IsNullOrEmpty(error))
+							{
+								Debug.Log(string.Format("PostTweet - failed. {0}", error));
+								callback(false);
+							}
+							else
+							{
+								callback(true);
+								
+								// Now that the image is uploaded, we need to send a tweet and incorporate the image ID...
+							}
+						}
+					}
+				}
+				
+			}
+		}
+		#endregion
 
         #region OAuth Help Methods
         // The below help methods are modified from "WebRequestBuilder.cs" in Twitterizer(http://www.twitterizer.net/).
@@ -371,7 +275,7 @@ namespace Twitter
                 return string.Empty;
             }
 
-            value = Uri.EscapeDataString(value);
+			value = BigEscapeString(value);
 
             // UrlEncode escapes with lowercase characters (e.g. %2f) but oAuth needs %2F
             value = Regex.Replace(value, "(%[0-9a-f][0-9a-f])", c => c.Value.ToUpper());
@@ -390,6 +294,27 @@ namespace Twitter
 
             return value;
         }
+
+		private static string BigEscapeString(string originalString)
+		{
+			int limit = 2000;
+			
+			StringBuilder sb = new StringBuilder();
+			int loops = originalString.Length / limit;
+			
+			for (int i = 0; i <= loops; i++)
+			{
+				if (i < loops)
+				{
+					sb.Append(Uri.EscapeDataString(originalString.Substring(limit * i, limit)));
+				}
+				else
+				{
+					sb.Append(Uri.EscapeDataString(originalString.Substring(limit * i)));
+				}
+			}
+			return sb.ToString();
+		}
 
         private static string UrlEncode(IEnumerable<KeyValuePair<string, string>> parameters)
         {
